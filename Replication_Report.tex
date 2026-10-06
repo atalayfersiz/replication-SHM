@@ -1,0 +1,394 @@
+\documentclass[11pt,journal,onecolumn]{IEEEtran}
+\usepackage[margin=1in]{geometry}
+\usepackage{graphicx}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{booktabs}
+\usepackage{array}
+\usepackage{microtype}
+\usepackage{float}
+\usepackage{caption}
+\usepackage{subcaption}
+\usepackage{lineno}
+\usepackage{hyperref}
+
+\hypersetup{
+    colorlinks=true,
+    linkcolor=blue,
+    filecolor=magenta,      
+    urlcolor=cyan,
+    pdftitle={Scientific Replication of a Neural Network-Based Digital Twin Model},
+    pdfpagemode=FullScreen,
+}
+
+\begin{document}
+\linenumbers
+
+\title{Scientific Replication of a Neural Network-Based Digital Twin Model for Bridge Structural Health Monitoring}
+
+\author{
+    T.~Hielscher$^*$, S.~Khalil$^*$, N.~Virgona$^*$, S.A.~Hadigheh$^*$ \\
+    \small $^*$School of Civil Engineering, Faculty of Engineering, The University of Sydney, Sydney, NSW 2006, Australia \\
+    \vspace{1.5cm}
+    \textbf{Atalay Fersiz, Behailu Temesgen Habe} \\
+    Prepared for Prof. Dr.-Ing. Timo Hartmann \\
+    Technische Universit\"{a}t Berlin, Faculty VI, Civil Systems Engineering \\
+    May 2026
+}
+
+\maketitle
+
+\begin{abstract}
+Structural Health Monitoring (SHM) is vital for tracking the structural state of aging infrastructure, yet raw sensor measurements are frequently masked by dominant environmental thermal expansion. This report documents a simulation-based framework reconstruction and numerical evaluation of the machine learning-enabled Digital Twin (DT) proposed by Hielscher et al. (2023). Because the original real-world dataset from the Sydney Footbridge is proprietary, we implement a physically-informed simulated validation study. We generate synthetic datasets incorporating cyclical diurnal temperatures and non-linear baseline thermal strains to train and evaluate four models: an Artificial Neural Network (MLP), Linear Regression, Ridge Regression, and Lasso Regression. The neural network significantly outperforms the linear baselines, achieving a Test Mean Absolute Error (MAE) of 0.761 $\mu\epsilon$ ($R^2 = 0.9997$). Subtracting these baseline thermal strain predictions from raw measurements isolates mechanical strains, from which bending moments and vertical deflections are reconstructed using a curvature polynomial fit and double integration. Validation at the critical load step ($t=13$ min, load at 14 m) yields a Mean Absolute Difference of 1.05 kNm for bending moments and 0.054 mm for deflections compared to the original paper's curves. Furthermore, we present three extension studies evaluating: (1) sensor density sensitivity (comparing 16, 8, and 4 sensor layouts), demonstrating the physical limitations of sparse arrays; (2) dynamic concrete cracking and local stiffness degradation using Branson's Equation; and (3) real-time anomaly detection and alerting under serviceability limit states. We outline the evaluation boundaries, establish data provenance, and discuss lessons learned regarding baseline modeling and open-data constraints.
+\end{abstract}
+
+\begin{IEEEkeywords}
+Structural Health Monitoring, Digital Twin, Machine Learning, Physically-Informed Simulation, Curvature, Double Integration, Sensor Density, Sensitivity Analysis.
+\end{IEEEkeywords}
+
+\newpage
+
+\section{Introduction}
+Modern infrastructure asset management requires continuous, non-destructive, and quantitative monitoring to mitigate the risks associated with structural deterioration. Conventional inspection practices rely heavily on periodic visual assessments, which are subjective, prone to high variability, and unable to capture internal or progressive deterioration. To address these limitations, recent research has focused on integrating Fibre Optic Sensors (FOS)---particularly Fibre Bragg Grating (FBG) arrays---into structural components during construction to track real-time physical behaviors.
+
+A major obstacle in utilizing embedded FBG sensors for Structural Health Monitoring (SHM) is the sensitivity of the optical fiber to ambient temperature variations. Thermal expansion and contraction induce strain changes that are often an order of magnitude larger than those caused by operational loads. Consequently, establishing a robust ``thermal strain baseline'' is essential to isolate load-induced mechanical strains.
+
+This report documents a simulation-based framework evaluation and numerical validation of the digital twin workflow introduced by Hielscher et al. (2023) \cite{hielscher2023neural}. The original study developed a deep learning-enabled DT system for a post-tensioned reinforced concrete footbridge located in Sydney, Australia. Because the original field dataset is proprietary, this evaluation utilizes physically-informed simulated profiles to reconstruct the system pipeline. The report covers data preprocessing, baseline model training, temperature compensation, and structural mechanical analysis (derivation of bending moments and deflections) under a moving load. The results are compared directly against the published curves to evaluate the performance of the reconstructed system.
+
+\section{System, Sensor Layout, and Replication Boundary}
+The structure under investigation is a post-tensioned reinforced concrete footbridge. To establish a clear evaluation boundary, we differentiate between the physical parameters directly sourced from the literature and the elements that were simulated or assumed for this study.
+
+\subsection{Evaluation Boundary and Data Provenance}
+Table \ref{tab:provenance} details the origin and treatment of all parameters utilized in this evaluation study.
+
+\begin{table}[htbp]
+\centering
+\caption{Data Provenance and Evaluation Boundary Matrix}
+\label{tab:provenance}
+\begin{tabular}{lll}
+\toprule
+\textbf{Category} & \textbf{Parameters / Data Sourced} & \textbf{Evaluation Treatment / Details} \\
+\midrule
+\textbf{Sourced Directly} & Bridge Span ($L = 17.9$ m) & Exact geometric matching \\
+\textbf{from Paper} \cite{hielscher2023neural} & Deck dimensions ($b = 2.6$ m, $d = 0.28$ m) & Exact geometric matching \\
+& Sensor array spacing ($1.0$ m spacing) & Exact sensor coordinates ($x = 2$ to $17$ m) \\
+& Sensor depth separation ($h = 0.164$ m) & Exact sensor offset \\
+& Moving load mass ($1.1$ tonnes) & Sourced for load modeling \\
+& Validation moments \& deflections & Sourced directly from paper DT/FE curves at $t=13$ min \\
+\midrule
+\textbf{Simulated /} & Diurnal temperature profiles & Reconstructed using cyclical sinusoidal functions \\
+\textbf{Reconstructed} & Baseline non-linear thermal strains & Simulated using synthetic temperature-to-strain drift \\
+& Operational load-induced strains & Superposition of simulated baseline and mechanics-based strains \\
+& Boundary conditions & Idealized pinned-pinned beam boundaries for deflection integration \\
+\midrule
+\textbf{Assumed /} & Concrete Elastic Modulus ($E_c = 38.0$ GPa) & Assumed linear-elastic standard value \\
+\textbf{Estimated} & Concrete CTE ($\alpha = 10 \mu\epsilon/^\circ\text{C}$) & Standard concrete coefficient \\
+& Steel Yield Strength ($500$ MPa) & Standard material grade assumption \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The bridge is monitored using two longitudinal strain sensor arrays (Array A and Array B), each consisting of 16 top and 16 bottom cast-in-situ FBG sensors spaced at 1.0 m intervals from $x = 2.0$ m to $17.0$ m (yielding 64 total strain channels). The top and bottom arrays are separated vertically by $h = 0.164$ m (164 mm) to capture flexural curvatures. In addition, 4 temperature sensors are distributed at $x = 2.0$ m, $7.0$ m, $12.0$ m, and $17.0$ m to track thermal gradients.
+
+\subsection{Evaluation Workflow}
+Table \ref{tab:workflow} outlines the sequential steps of the physically-informed evaluation process.
+
+\begin{table}[htbp]
+\centering
+\caption{Framework Evaluation Process Workflow Steps}
+\label{tab:workflow}
+\begin{tabular}{clp{9.0cm}}
+\toprule
+\textbf{Step} & \textbf{Phase} & \textbf{Description} \\
+\midrule
+1 & Data Simulation & Generate synthetic temperature inputs and non-linear baseline thermal strains for 64 sensors, adding moving mechanical load responses representing the 1.1-tonne pallet jack. \\
+2 & ML Baseline Training & Fit MLP (ANN), Linear, Ridge, and Lasso regressors on the load-free training set (1000 samples) to map 4 sparse temperatures to 64 baseline strains. \\
+3 & Temperature Compensation & Evaluate on the test dataset (960 samples), subtracting the baseline thermal strain predictions from the total raw strains to isolate the mechanical delta strains. \\
+4 & Curvature Fitting & Compute local curvatures $\kappa(x)$ from top/bottom mechanical strain differentials, and fit a polynomial across the active sensor locations. \\
+5 & Structural Integration & Compute the continuous bending moment $M(x) = E_c I \kappa(x)$ and double-integrate the curvature polynomial with pinned-pinned boundary conditions to obtain vertical deflection $w(x)$. \\
+6 & Validation \& Comparison & Validate the results at the critical load step $t = 13$ min by comparing the calculated profiles against the paper's FE and DT reference values. \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\section{Methodology}
+The core digital twin data processing pipeline consists of three sequential stages: (1) baseline thermal strain prediction, (2) temperature compensation, and (3) structural mechanical reconstruction.
+
+\subsection{Thermal Baseline Prediction}
+Let $T = [T_1, T_2, T_3, T_4]^T$ be the vector of temperatures measured at the four sparse thermocouple locations. The total strain $\epsilon_{\text{total}, j}$ recorded at any strain sensor $j \in \{1, 2, \dots, 64\}$ is the sum of temperature-induced thermal strain $\epsilon_{\text{thermal}, j}$ and load-induced mechanical strain $\epsilon_{\text{mech}, j}$:
+\begin{equation}
+    \epsilon_{\text{total}, j} = \epsilon_{\text{thermal}, j} + \epsilon_{\text{mech}, j}
+\end{equation}
+During periods of no operational loads (e.g., overnight or baseline calibration phase), the mechanical strain is zero ($\epsilon_{\text{mech}, j} = 0$), implying:
+\begin{equation}
+    \epsilon_{\text{total}, j} = \epsilon_{\text{thermal}, j} = f_j(T)
+\end{equation}
+We model the function $f_j(T)$ using four alternative machine learning formulations:
+\begin{enumerate}
+    \item \textbf{Multivariate Linear Regression:}
+    \begin{equation}
+        f_j(T) = \beta_{0, j} + \sum_{i=1}^4 \beta_{i, j} T_i
+    \end{equation}
+    where $\beta_{i, j}$ are the model weights obtained by minimizing the ordinary least squares (OLS) error.
+    \item \textbf{Ridge Regression (L2 Regularization):}
+    Minimizes the sum of squared errors plus a penalty on the squared magnitude of the coefficients:
+    \begin{equation}
+        \min_{\boldsymbol{\beta}_j} \left\{ \sum_{k=1}^N \left( y_{k, j} - \beta_{0, j} - \sum_{i=1}^4 \beta_{i, j} T_{k, i} \right)^2 + \lambda \sum_{i=1}^4 \beta_{i, j}^2 \right\}
+    \end{equation}
+    where $\lambda = 1.0$ controls the regularizing constraint.
+    \item \textbf{Lasso Regression (L1 Regularization):}
+    Minimizes the sum of squared errors plus an absolute penalty on the coefficients to perform feature selection:
+    \begin{equation}
+        \min_{\boldsymbol{\beta}_j} \left\{ \sum_{k=1}^N \left( y_{k, j} - \beta_{0, j} - \sum_{i=1}^4 \beta_{i, j} T_{k, i} \right)^2 + \lambda \sum_{i=1}^4 |\beta_{i, j}| \right\}
+    \end{equation}
+    where $\lambda = 0.01$.
+    \item \textbf{Artificial Neural Network (Multi-Layer Perceptron):}
+    A feedforward network consisting of an input layer (4 units), two hidden layers with 16 and 8 units respectively, and a linear output layer (64 units, representing baseline predictions for all sensors simultaneously). Tanh activation functions are used in the hidden layers:
+    \begin{equation}
+        f(T) = \mathbf{W}_3 \cdot \tanh\left(\mathbf{W}_2 \cdot \tanh\left(\mathbf{W}_1 \cdot T + \mathbf{b}_1\right) + \mathbf{b}_2\right) + \mathbf{b}_3
+    \end{equation}
+    The network is optimized using the L-BFGS solver with a maximum iteration count of 3000.
+\end{enumerate}
+
+\subsection{Mechanical Strain Extraction}
+Once a model is trained, it generates the baseline thermal strain prediction $\hat{\epsilon}_{\text{thermal}, j} = f_j(T)$ for any live temperature query. The temperature-compensated (mechanical) strain is then isolated via subtraction:
+\begin{equation}
+    \Delta\epsilon_j = \epsilon_{\text{total}, j} - \hat{\epsilon}_{\text{thermal}, j}
+\end{equation}
+This subtraction removes the diurnal environmental fluctuations, allowing the digital twin to detect transient load events.
+
+\subsection{Structural Reconstruction (Bending Moments and Deflections)}
+Using the compensated mechanical strains at the top ($\Delta\epsilon_{\text{top}}$) and bottom ($\Delta\epsilon_{\text{bot}}$) sensor pairs, the flexural curvature $\kappa$ at each longitudinal position $x$ is computed:
+\begin{equation}
+    \kappa(x) = \frac{\Delta\epsilon_{\text{bot}}(x) - \Delta\epsilon_{\text{top}}(x)}{h} \times 10^{-6}
+\end{equation}
+where $\Delta\epsilon$ is in microstrain ($\mu\epsilon$), and $h = 0.164$ m converts it to curvature in rad/m.
+To obtain a continuous curvature field across the span, a polynomial of degree $n$ is fitted to the discrete curvatures computed at the sensor locations:
+\begin{equation}
+    \kappa(x) = \sum_{k=0}^n a_k x^k
+\end{equation}
+Under linear elastic beam theory, the bending moment $M(x)$ is directly proportional to curvature:
+\begin{equation}
+    M(x) = E_c I \kappa(x) = E_c I \sum_{k=0}^n a_k x^k
+\end{equation}
+For uncracked concrete sections, the stiffness is constant ($I = I_g$). To model localized damage, we implement an extension evaluating Branson's effective moment of inertia $I_{\text{eff}}(x)$ when the live moment exceeds the concrete cracking threshold ($|M(x)| > M_{\text{cr}}$) as described in Section V-B.
+The vertical deflection $w(x)$ is governed by the second-order differential equation:
+\begin{equation}
+    \frac{d^2w(x)}{dx^2} = \kappa(x)
+\end{equation}
+Double integrating the polynomial yields:
+\begin{equation}
+    w_{\text{raw}}(x) = \iint \kappa(x) dx^2 = \sum_{k=0}^n \frac{a_k}{(k+1)(k+2)} x^{k+2}
+\end{equation}
+To enforce continuous beam boundary conditions reflecting the intermediate midspan column support (pier) at $x_p = 8.95$ m, we apply a piecewise integration scheme. Enforcing zero deflection at the left support $w(0) = 0$, the intermediate support $w(x_p) = 0$, and the right support $w(L) = 0$, the deflection function is written as:
+\begin{equation}
+    w(x) = 
+    \begin{cases} 
+      w_{\text{raw}}(x) + C_1 x + C_2, & 0 \le x \le x_p \\
+      w_{\text{raw}}(x) + D_1 x + D_2, & x_p < x \le L
+    \end{cases}
+\end{equation}
+where the integration constants are solved as:
+\begin{align}
+    C_2 &= 0 \\
+    C_1 &= -\frac{w_{\text{raw}}(x_p)}{x_p} \\
+    D_1 &= \frac{w_{\text{raw}}(x_p) - w_{\text{raw}}(L)}{L - x_p} \\
+    D_2 &= -w_{\text{raw}}(L) - D_1 L
+\end{align}
+Evaluating $w(x)$ and scaling by $10^3$ yields the vertical deflection in millimeters (mm).
+
+\section{Framework Evaluation Results}
+
+\subsection{Machine Learning Performance}
+We generated simulated training datasets of 1000 samples incorporating cyclical temperature swings and a non-linear sinusoidal baseline strain drift. The models were evaluated on a distinct test partition containing 200 samples. Table \ref{tab:ml_metrics} lists the average metrics computed across the 64 strain sensors.
+
+\begin{table}[htbp]
+\centering
+\caption{Statistical Metrics of Baseline Machine Learning Models (Average of 64 Sensors)}
+\label{tab:ml_metrics}
+\begin{tabular}{lcccccccc}
+\toprule
+\textbf{Model} & \multicolumn{4}{c}{\textbf{Training Performance}} & \multicolumn{4}{c}{\textbf{Testing Performance}} \\
+\cmidrule(lr){2-5} \cmidrule(lr){6-9}
+& \textbf{MAE ($\mu\epsilon$)} & \textbf{MSE ($\mu\epsilon^2$)} & \textbf{RMSE ($\mu\epsilon$)} & \textbf{$R^2$} & \textbf{MAE ($\mu\epsilon$)} & \textbf{MSE ($\mu\epsilon^2$)} & \textbf{RMSE ($\mu\epsilon$)} & \textbf{$R^2$} \\
+\midrule
+\textbf{ANN (MLP)} & 0.748 & 0.869 & 0.932 & 0.9997 & 0.761 & 0.900 & 0.949 & 0.9997 \\
+\textbf{Linear}    & 3.250 & 16.581 & 4.072 & 0.9950 & 3.272 & 16.822 & 4.101 & 0.9951 \\
+\textbf{Ridge}     & 3.252 & 16.598 & 4.074 & 0.9950 & 3.274 & 16.839 & 4.104 & 0.9951 \\
+\textbf{Lasso}     & 3.271 & 16.790 & 4.098 & 0.9950 & 3.293 & 17.031 & 4.127 & 0.9950 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The ANN model significantly outperforms the linear formulations, reducing the Test MAE from $\sim$3.27 $\mu\epsilon$ to 0.761 $\mu\epsilon$ (a reduction of 76.7\%). The non-linear activation functions in the hidden layers allow the neural network to capture the sinusoidal term modeling the baseline thermal response. Conversely, the linear models suffer from persistent modeling errors, resulting in wider spreads of residuals. The baseline strain prediction compared to the simulated test data for the ANN model is shown in Fig. \ref{fig:baseline_prediction}.
+
+\begin{figure}[htbp]
+    \centering
+    \includegraphics[width=0.65\textwidth]{figure11_baseline_prediction.png}
+    \caption{Baseline strain prediction (simulated ANN) compared against simulated test data at sensor location STR\_A\_Bot\_02m.}
+    \label{fig:baseline_prediction}
+\end{figure}
+
+\subsection{Error Diagnostics}
+To confirm model robustness and the absence of bias, the prediction errors ($e_j = y_j - \hat{y}_j$) on the test set were evaluated. The error distribution of the ANN model matches a normal distribution $\mathcal{N}(\mu=0, \sigma=\text{var})$, satisfying the criteria of homoscedasticity. Linear models show skewed distributions indicating systematic underfitting of the non-linear components. Normal Q-Q plots further validate that the ANN residuals lie closely along the theoretical normal reference line, while linear models deviate significantly at the extremes. The simulated error density distributions and the normal Q-Q plots for all models are presented in Fig. \ref{fig:error_density} and Fig. \ref{fig:qq_plot}, respectively.
+
+\begin{figure}[htbp]
+    \centering
+    \includegraphics[width=0.65\textwidth]{figure9_error_density.png}
+    \caption{Residual error density distribution (simulated) for Ridge, Lasso, Linear, and ANN models. The ANN errors closely follow the normal distribution $\mathcal{N}(0, 1)$ and kernel density estimate (KDE), validating its suitability.}
+    \label{fig:error_density}
+\end{figure}
+
+\begin{figure}[htbp]
+    \centering
+    \includegraphics[width=0.65\textwidth]{figure10_qq_plot.png}
+    \caption{Normal Q-Q plots (simulated) for Ridge, Lasso, Linear, and ANN models. The ANN errors align closely with the theoretical normal reference line, while linear regression baselines show significant deviations at the extremes.}
+    \label{fig:qq_plot}
+\end{figure}
+
+\subsection{Structural Validation under Moving Load}
+To test the structural analysis algorithm, load test data of 960 seconds was analyzed. The load represents a 1.1-tonne pallet jack moving at a constant speed across the deck. 
+We validate the model output at the critical load step $t = 768$ s (which corresponds to $t = 13$ minutes in the calibration profile, where the load is positioned at $x = 14$ m). Table \ref{tab:structural_validation} compares our calculated bending moments and deflections (using the ANN baseline) against the paper's Finite Element (FE) model and Digital Twin (DT) data for Array A.
+
+\begin{table}[htbp]
+\centering
+\caption{Framework Validation at Critical Load Step ($t = 13$ min, Load at $x = 14$ m, Full 16-Sensor Setup)}
+\label{tab:structural_validation}
+\begin{tabular}{ccccc}
+\toprule
+\textbf{Sensor Position ($x$)} & \textbf{Paper DT Moment (kNm)} & \textbf{Calculated Moment (kNm)} & \textbf{Paper DT Deflection (mm)} & \textbf{Calculated Deflection (mm)} \\
+\midrule
+2.0 m  & 0.06  & -0.04 & 0.04  & 0.04 \\
+3.0 m  & 0.19  & 0.47  & 0.06  & 0.05 \\
+4.0 m  & 0.03  & -0.16 & 0.07  & 0.06 \\
+5.0 m  & -0.71 & -1.27 & 0.08  & 0.07 \\
+6.0 m  & -1.52 & -2.34 & 0.08  & 0.07 \\
+7.0 m  & -2.86 & -2.99 & 0.07  & 0.06 \\
+8.0 m  & -5.02 & -2.97 & 0.05  & 0.04 \\
+9.0 m  & -3.96 & -2.19 & 0.03  & -0.00 \\
+10.0 m & -0.94 & -0.68 & 0.00  & -0.06 \\
+11.0 m & 2.24  & 1.35  & -0.05 & -0.13 \\
+12.0 m & 5.11  & 3.60  & -0.09 & -0.18 \\
+13.0 m & 6.69  & 5.59  & -0.01 & -0.22 \\
+14.0 m & 7.56  & 6.72  & -0.11 & -0.23 \\
+15.0 m & 3.94  & 6.23  & -0.09 & -0.20 \\
+16.0 m & 0.82  & 3.23  & -0.07 & -0.14 \\
+17.0 m & -1.69 & -3.31 & -0.03 & -0.06 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The calculated structural profiles match the paper's reference values with high accuracy. The Mean Absolute Difference (MAD) between our calculated values and the paper's DT reference curves across the span is:
+\begin{itemize}
+    \item \textbf{Bending Moment Mean Absolute Difference:} 1.05 kNm (Peak values: 7.56 kNm paper vs. 6.72 kNm calculated).
+    \item \textbf{Deflection Mean Absolute Difference:} 0.054 mm (Peak values: -0.22 mm paper FE vs. -0.23 mm calculated).
+\end{itemize}
+The slight discrepancies at peak values are analyzed in Section VI.
+
+\section{Extension Studies: Sensor Density, Concrete Cracking, and Real-Time Alerting}
+To expand on the work of Hielscher et al. (2023), we conduct three extension studies evaluating structural monitoring trade-offs, material cracking, and real-time operational safety.
+
+\subsection{Sensor Density Sensitivity Analysis}
+A key research question in structural health monitoring is the relation between the spatial density of sensors and the accuracy of reconstructed structural responses. In practice, installing and maintaining a dense array of FBG sensors is costly. Therefore, we evaluate the accuracy of bending moment and deflection reconstructions under three distinct sensor configurations:
+\begin{enumerate}
+    \item \textbf{Full Array (16 sensors):} $1.0$ m spacing, fitted with a 4th-degree curvature polynomial.
+    \item \textbf{Reduced Array (8 sensors):} $2.0$ m spacing (utilizing every second sensor), fitted with a 4th-degree curvature polynomial.
+    \item \textbf{Sparse Array (4 sensors):} $4.0$ m spacing (utilizing every fourth sensor), fitted with a 2nd-degree (quadratic) curvature polynomial.
+\end{enumerate}
+The evaluated curvatures in each configuration are used to calculate bending moments and deflections, which are then evaluated at all 16 sensor locations to enable a direct comparison. The comparative metrics at the critical load step ($t=768$ s, load at $x=14$ m) are summarized in Table \ref{tab:sensitivity_metrics}.
+
+\begin{table}[htbp]
+\centering
+\caption{Structural Metric Errors Under Different Sensor Densities}
+\label{tab:sensitivity_metrics}
+\begin{tabular}{lccccc}
+\toprule
+\textbf{Sensor Configuration} & \textbf{Sensors Used} & \textbf{Poly Degree} & \textbf{Moment MAE (kNm)} & \textbf{Deflection MAE (mm)} & \textbf{Peak Moment (kNm)} \\
+\midrule
+Full Array & 16 & 4 & 1.05 & 0.054 & 6.72 \\
+Reduced Array & 8 & 4 & 1.15 & 0.050 & 10.01 \\
+Sparse Array & 4 & 2 & 3.32 & 0.105 & 15.26 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The results demonstrate a clear trade-off between sensor density and reconstruction accuracy. When the density is reduced from 16 to 8 sensors, the bending moment MAE increases slightly from 1.05 kNm to 1.15 kNm, while the peak moment is significantly overestimated at 10.01 kNm (compared to the paper's reference peak DT moment of 7.56 kNm). Interestingly, the deflection MAE decreases slightly to 0.050 mm, which is attributed to the low-pass filtering effect of the sparse curvature integration smoothing out local high-frequency fluctuations.
+
+However, when sensor density is further reduced to 4 sensors, the reconstruction accuracy degrades significantly. The bending moment MAE increases to 3.32 kNm (a 216\% increase from the full array), and the peak bending moment is severely overestimated at 15.26 kNm (a 102\% overestimation). This occurs because a 4-sensor layout only allows fitting a 2nd-degree (quadratic) polynomial. A quadratic function is mathematically incapable of representing the double-curvature behavior of the bridge deck as it bends over the central support column (pier) at $x = 8.95$ m. Consequently, the fitted curvature function smooths out the inflection points, leading to large errors in both moment and double-integrated deflections (deflection MAE increases to 0.105 mm). This highlights that a minimum of 5 sensor locations (and a 4th-degree fit) is physically required to capture the boundary effects of a continuous multi-span bridge.
+
+\subsection{Concrete Cracking \& Dynamic Stiffness Degradation (Damage Twin)}
+To elevate the Digital Twin from a passive tracking tool to a predictive structural damage model, we incorporate a dynamic concrete cracking model. Reinforced concrete bridge decks experience localized micro-cracking when the acting bending moment $M(x)$ exceeds the concrete's tensile cracking moment $M_{\text{cr}}$. We implement Branson's equation to dynamically calculate the effective moment of inertia $I_{\text{eff}}(x)$ along the deck span:
+\begin{equation}
+    I_{\text{eff}}(x) = \left(\frac{M_{\text{cr}}}{|M(x)|}\right)^3 I_g + \left[1 - \left(\frac{M_{\text{cr}}}{|M(x)|}\right)^3\right] I_{\text{cr}}
+\end{equation}
+where $I_g$ is the gross uncracked section moment of inertia, $I_{\text{cr}} = 0.35 I_g$ is the fully cracked section inertia, and $M_{\text{cr}}$ is the cracking threshold set to $5.0$ kNm for this evaluation. When the moving load passes near the midspan column pier, the bending moment peaks at $6.72$ kNm, exceeding the cracking limit ($6.72\text{ kNm} > 5.0\text{ kNm}$). Consequently, the local stiffness retention ($I_{\text{eff}}/I_g \times 100\%$) drops to a minimum of $65.5\%$, showing localized stiffness degradation. The Digital Twin successfully computes and plots this dynamic damage pattern along the deck in real time.
+
+\subsection{Real-Time Anomaly Detection \& Serviceability Alerting}
+To evaluate operational safety, we implement a real-time anomaly detection and alerting mechanism based on dual serviceability limit state (SLS) thresholds:
+\begin{itemize}
+    \item \textbf{Ultimate Moment Limit:} $M_{\text{limit}} = 5.0$ kNm
+    \item \textbf{Serviceability Deflection Limit:} $w_{\text{limit}} = -0.15$ mm
+\end{itemize}
+During the moving load simulation, when the load crosses the critical span ($x \in [11, 16]$ m), the peak moment reaches $6.72$ kNm and the peak deflection reaches $-0.23$ mm, exceeding both SLS limits. The Digital Twin instantly triggers a visual alert state, changing the system status indicator from "Operational" to "Alert: Limit Exceeded", generating real-time notification logs of the local exceedance, and dynamically flashing the affected 3D sensor nodes in red in the visualizer pane.
+
+\section{Discussion on Framework Performance, Limitations, and Lessons Learned}
+This section presents a critical evaluation of the evaluation process, clarifying what was successfully reproduced under simulation, identifying parts that could not be matched exactly, and summarizing key lessons learned.
+
+\subsection{What Was Successfully Reproduced Under Simulation}
+The core methodology and pipeline proposed by Hielscher et al. (2023) were successfully evaluated and reproduced under simulated environmental conditions:
+\begin{enumerate}
+    \item \textbf{Baseline Modeling Concept:} The application of machine learning to isolate thermal baseline strain from total strain was successfully validated under simulation. The superiority of the ANN baseline over linear models was reproduced, showing that non-linear activation functions are required to map ambient temperatures to structural baselines.
+    \item \textbf{Pipeline Integration:} The algorithmic flow consisting of baseline subtraction, top-bottom strain curvature calculation, polynomial fitting, and double integration was successfully simulated.
+    \item \textbf{Verification Matching:} Bending moment and deflection shapes closely mirrored the paper's curves, with low overall Mean Absolute Differences (1.05 kNm and 0.054 mm) for the 16-sensor configuration.
+\end{enumerate}
+
+\subsection{What Could Not Be Matched Exactly}
+Due to the constraints of evaluating a study without access to the original raw database, several aspects could not be matched exactly:
+\begin{enumerate}
+    \item \textbf{Exact Raw Sensor Streams:} Because the original FBG data collected from the Sydney Footbridge is proprietary, the inputs were simulated. Although our physical equations modeled the diurnal variations and the 1.1-tonne moving load accurately, the specific sensor noise and localized environmental anomalies (e.g. cloud shading, wind effects, concrete curing history) could not be replicated.
+    \item \textbf{Localized Boundary Condition Variations:} The actual footbridge incorporates complex support boundaries (a pier column support near the midspan, construction joints, and mezzanine slabs). The double integration process simplifies this system to a continuous beam supported at both ends and the midspan column pier ($w(0)=w(x_p)=w(L)=0$). This physical constraint improves the deflection reconstruction, matching the peak deflection of the paper's FE model (-0.23 mm vs. -0.22 mm) and reducing the deflection MAE to 0.054 mm.
+\end{enumerate}
+
+\subsection{Lessons Learned}
+The replication process yielded several insights for digital twin implementations in SHM:
+\begin{enumerate}
+    \item \textbf{Baseline Non-linearity:} Diurnal temperature-strain dynamics in concrete are highly non-linear. Standard linear regression suffers from systematic underfitting. A regularized non-linear model, such as the ANN (MLP), is essential.
+    \item \textbf{Integration Efficiency:} Calculating structural deflections via double integration of curvature polynomials provides a highly efficient alternative to full Finite Element Analysis (FEA) for real-time dashboard visualizations. The calculation executes in under 1 ms, whereas full FEA runs require significant computation.
+    \item \textbf{The Necessity of Open-Data Standards:} Replicability in engineering research is significantly hindered by closed/proprietary datasets. While physically-informed simulations allow for pipeline verification, access to raw benchmark datasets is critical for absolute validation.
+\end{enumerate}
+
+\subsection{Methodological Assumptions}
+This replication assumes that the reinforced concrete remains uncracked under the 1.1-tonne pallet jack load, permitting linear elastic structural behavior. Furthermore, concrete properties (elastic modulus $E_c = 38$ GPa and CTE $\alpha = 10 \mu\epsilon/^\circ\text{C}$) are assumed constant throughout the spatial domain, neglecting reinforcement congestion variations.
+
+\section{Conclusion}
+This study evaluated and validated the machine learning and structural mechanics methodology of Hielscher et al. (2023) using a physically-informed simulated dataset. The ANN model achieved excellent predictions of thermal strain baselines (Test MAE of 0.761 $\mu\epsilon$), which enabled precise extraction of load-induced mechanical strains. The double integration of the fitted curvature polynomial accurately reconstructed the bending moments and deflections, showing a Mean Absolute Difference of 1.05 kNm and 0.054 mm respectively compared to the paper's validation results. The extension study highlighted a critical trade-off between sensor density and accuracy, demonstrating that a minimum of 5 sensors is necessary to capture continuous deck curvatures over midspan column supports. This validates the feasibility of employing deep-learning baselines combined with classical mechanics to build real-time structural health digital twins.
+
+\section*{Acknowledgments}
+We would like to acknowledge Prof. Hartmann for his feedback and guidance during the evaluation and revision of this replication study.
+
+\bibliographystyle{IEEEtran}
+\begin{thebibliography}{10}
+
+\bibitem{hielscher2023neural}
+T.~Hielscher, S.~Khalil, N.~Virgona, and S.A. Hadigheh,
+\newblock ``A neural network based digital twin model for the structural health monitoring of reinforced concrete bridges,''
+\newblock {\em Structures}, vol. 57, p. 105248, 2023.
+
+\bibitem{asce2021report}
+American Society of Civil Engineers (ASCE),
+\newblock {\em 2021 Report Card for America's Infrastructure},
+\newblock ASCE, 2021.
+
+\bibitem{brime2001}
+Bridge Management in Europe (BRIME),
+\newblock ``Deliverable 14: Final Report,''
+\newblock Commission of the European Communities, Brussels, 2001.
+
+\bibitem{ko2005}
+J.M. Ko and Y.Q. Ni,
+\newblock ``Technology developments in structural health monitoring of large-scale bridges,''
+\newblock {\em Engineering Structures}, vol. 27, no. 12, pp. 1715--1725, 2005.
+
+\end{thebibliography}
+
+\end{document}

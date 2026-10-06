@@ -1,0 +1,412 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Bridge Structural Health Digital Twin</title>
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&family=Outfit:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <!-- Lucide Icons -->
+    <script src="https://cdn.jsdelivr.net/npm/lucide@0.321.0/dist/umd/lucide.min.js"></script>
+    <!-- Chart.js -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <!-- Three.js and OrbitControls -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+    <!-- Custom CSS -->
+    <link rel="stylesheet" href="style.css?v=2">
+</head>
+<body>
+    <div class="app-container">
+        <!-- Sidebar Controls -->
+        <aside class="sidebar">
+            <div class="sidebar-header">
+                <div class="logo-container">
+                    <div class="logo-icon"></div>
+                    <h2>CIVIL-DT</h2>
+                </div>
+                <p class="subtitle">Bridge Health Digital Twin</p>
+            </div>
+
+            <!-- Simulation Controls -->
+            <section class="control-section glass-card">
+                <h3><i data-lucide="sliders"></i> Simulation Controls</h3>
+                
+                <div class="control-group">
+                    <label>Baseline ML Model</label>
+                    <select id="model-select" class="custom-select">
+                        <option value="ANN">Artificial Neural Network (MLP)</option>
+                        <option value="Linear">Linear Regression</option>
+                        <option value="Ridge">Ridge Regression</option>
+                        <option value="Lasso">Lasso Regression</option>
+                    </select>
+                </div>
+
+                <div class="control-group">
+                    <label>Sensor Array</label>
+                    <div class="btn-group">
+                        <button id="btn-arr-a" class="toggle-btn active" onclick="setArray('A')">Array A</button>
+                        <button id="btn-arr-b" class="toggle-btn" onclick="setArray('B')">Array B</button>
+                    </div>
+                </div>
+
+                <div class="control-group">
+                    <label>Sensor Density (Sensitivity Study)</label>
+                    <select id="density-select" class="custom-select">
+                        <option value="Full">Full Array (16 sensors)</option>
+                        <option value="Half">Reduced Array (8 sensors)</option>
+                        <option value="Sparse">Sparse Array (4 sensors)</option>
+                    </select>
+                </div>
+
+                <div class="playback-controls">
+                    <button id="btn-play" class="play-btn">
+                        <i data-lucide="play" class="play-icon"></i>
+                        <i data-lucide="pause" class="pause-icon hidden"></i>
+                    </button>
+                    <div class="timeline-container">
+                        <div class="time-readout">
+                            <span id="time-display">00:00</span>
+                            <span id="pos-display">Load: 2.00m</span>
+                        </div>
+                        <input type="range" id="timeline-slider" min="0" max="959" value="0" class="custom-slider">
+                    </div>
+                </div>
+
+                <div class="control-group speed-group">
+                    <label>Playback Speed</label>
+                    <input type="range" id="speed-slider" min="1" max="10" value="3" class="custom-slider">
+                </div>
+            </section>
+
+            <!-- ML Performance Metrics Table -->
+            <section class="metrics-section glass-card">
+                <h3><i data-lucide="bar-chart-2"></i> ML Model Baseline Metrics</h3>
+                <div class="metrics-table-wrapper">
+                    <table class="metrics-table">
+                        <thead>
+                            <tr>
+                                <th>Model</th>
+                                <th>Test MAE</th>
+                                <th>Test R²</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr id="row-ann" class="highlight-row">
+                                <td>ANN (MLP)</td>
+                                <td>0.761 με</td>
+                                <td>0.9997</td>
+                            </tr>
+                            <tr id="row-linear">
+                                <td>Linear</td>
+                                <td>3.272 με</td>
+                                <td>0.9951</td>
+                            </tr>
+                            <tr id="row-ridge">
+                                <td>Ridge</td>
+                                <td>3.274 με</td>
+                                <td>0.9951</td>
+                            </tr>
+                            <tr id="row-lasso">
+                                <td>Lasso</td>
+                                <td>3.293 με</td>
+                                <td>0.9950</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+                <div class="metric-note">
+                    <i data-lucide="info"></i>
+                    <span>Metrics averaged across all 64 sensors. ANN outperforms linear models by &gt;76% in prediction error.</span>
+                </div>
+            </section>
+
+            <!-- Real-Time Alert Log Section -->
+            <section class="alert-section glass-card">
+                <div class="chart-header" style="border-bottom: none; padding-bottom: 0; margin-bottom: 8px; display: flex; justify-content: space-between; align-items: center; width: 100%;">
+                    <h3 style="border-bottom: none; padding-bottom: 0;"><i data-lucide="bell"></i> Real-Time Alerts</h3>
+                    <button id="btn-expand-alerts" class="action-btn" style="margin-right: 0; padding: 2px 6px; font-size: 9px;" title="Expand Alert Log"><i data-lucide="maximize-2"></i></button>
+                </div>
+                <div id="alert-log-container" class="alert-log-container">
+                    <div class="alert-empty-state">No structural alerts. System green.</div>
+                </div>
+            </section>
+        </aside>
+
+        <!-- Main Dashboard Content -->
+        <main class="dashboard-main">
+            <!-- Header -->
+            <header class="dashboard-header glass-card">
+                <div class="header-left">
+                    <h1>Sydney Footbridge Health Monitoring</h1>
+                    <p class="description">Digital Twin framework evaluation study of Hielscher et al., 2023. Real-time extraction of live structural metrics from simulated temperature-compensated strains.</p>
+                </div>
+                <div class="header-right">
+                    <button id="btn-validation-info" class="action-btn">
+                        <i data-lucide="info"></i> Validation & Methodology
+                    </button>
+                    <div class="status-indicator">
+                        <span class="prototype-badge">Prototype</span>
+                        <span class="pulse-dot"></span>
+                        <span class="status-text">DT Active</span>
+                    </div>
+                </div>
+            </header>
+
+            <!-- Key Performance Indicators (KPIs) -->
+            <section class="kpi-grid">
+                <div class="kpi-card glass-card">
+                    <div class="kpi-icon-container purple">
+                        <i data-lucide="navigation"></i>
+                    </div>
+                    <div class="kpi-data">
+                        <span class="kpi-label">Load Position</span>
+                        <span id="kpi-load-pos" class="kpi-value">2.00 m</span>
+                    </div>
+                </div>
+                <div class="kpi-card glass-card">
+                    <div class="kpi-icon-container blue">
+                        <i data-lucide="activity"></i>
+                    </div>
+                    <div class="kpi-data">
+                        <span class="kpi-label">Max Δ Strain (Top/Bot)</span>
+                        <span id="kpi-max-strain" class="kpi-value">0.00 με</span>
+                    </div>
+                </div>
+                <div class="kpi-card glass-card">
+                    <div class="kpi-icon-container green">
+                        <i data-lucide="git-commit"></i>
+                    </div>
+                    <div class="kpi-data">
+                        <span class="kpi-label">Max Bending Moment</span>
+                        <span id="kpi-max-moment" class="kpi-value">0.00 kNm</span>
+                    </div>
+                </div>
+                <div class="kpi-card glass-card">
+                    <div class="kpi-icon-container red">
+                        <i data-lucide="arrow-down"></i>
+                    </div>
+                    <div class="kpi-data">
+                        <span class="kpi-label">Max Deflection</span>
+                        <span id="kpi-max-deflection" class="kpi-value">0.00 mm</span>
+                    </div>
+                </div>
+            </section>
+
+            <!-- 3D Visualization Pane -->
+            <section class="visualizer-section glass-card">
+                <div class="card-header">
+                    <h3><i data-lucide="box"></i> 3D Digital Twin Representation</h3>
+                    <div class="visualizer-legends">
+                        <span class="legend-item"><span class="legend-color tension"></span>Tension (+ε)</span>
+                        <span class="legend-item"><span class="legend-color compression"></span>Compression (-ε)</span>
+                        <span class="legend-item"><span class="legend-color support"></span>Column Support</span>
+                    </div>
+                </div>
+                <div class="canvas-container">
+                    <div id="three-canvas-container"></div>
+                    <div class="canvas-overlay-controls">
+                        <button id="btn-reset-cam" title="Reset Camera View"><i data-lucide="refresh-cw"></i></button>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Graphs and Plot Grid -->
+            <section class="charts-grid">
+                <!-- Bending Moment Chart -->
+                <div class="chart-card glass-card">
+                    <div class="chart-header">
+                        <h3><i data-lucide="activity"></i> Bending Moment (M) Along Span</h3>
+                        <div class="comparison-indicator">
+                            <span class="series-dot calculated"></span>Calculated (DT)
+                            <span class="series-dot paper-dt"></span>Paper DT
+                            <span class="series-dot paper-fe"></span>Paper FE
+                        </div>
+                    </div>
+                    <div class="chart-container">
+                        <canvas id="moment-chart"></canvas>
+                    </div>
+                </div>
+
+                <!-- Deflection Chart -->
+                <div class="chart-card glass-card">
+                    <div class="chart-header">
+                        <h3><i data-lucide="trending-down"></i> Vertical Deflection (w) Along Span</h3>
+                        <div class="comparison-indicator">
+                            <span class="series-dot calculated"></span>Calculated (DT)
+                            <span class="series-dot paper-dt"></span>Paper DT
+                            <span class="series-dot paper-fe"></span>Paper FE
+                        </div>
+                    </div>
+                    <div class="chart-container">
+                        <canvas id="deflection-chart"></canvas>
+                    </div>
+                </div>
+
+                <!-- Concrete Stiffness Retention Chart -->
+                <div class="chart-card glass-card">
+                    <div class="chart-header">
+                        <h3><i data-lucide="shield-alert"></i> Concrete Stiffness Retention Along Span</h3>
+                        <div class="comparison-indicator">
+                            <span class="series-dot calculated"></span>Stiffness Retention (%)
+                        </div>
+                    </div>
+                    <div class="chart-container">
+                        <canvas id="stiffness-chart"></canvas>
+                    </div>
+                </div>
+
+                <!-- Live Temperature & Strains Chart -->
+                <div class="chart-card glass-card">
+                    <div class="chart-header font-size-control">
+                        <h3><i data-lucide="thermometer"></i> Strains & Temperatures (Time-Series)</h3>
+                        <div class="sensor-select-group">
+                            <label for="sensor-select">Sensor: </label>
+                            <select id="sensor-select" class="custom-select-small">
+                                <option value="2">2.0m</option>
+                                <option value="3">3.0m</option>
+                                <option value="4">4.0m</option>
+                                <option value="5">5.0m</option>
+                                <option value="6">6.0m</option>
+                                <option value="7">7.0m</option>
+                                <option value="8">8.0m</option>
+                                <option value="9">9.0m</option>
+                                <option value="10">10.0m</option>
+                                <option value="11">11.0m</option>
+                                <option value="12">12.0m</option>
+                                <option value="13">13.0m</option>
+                                <option value="14" selected>14.0m</option>
+                                <option value="15">15.0m</option>
+                                <option value="16">16.0m</option>
+                                <option value="17">17.0m</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="chart-container">
+                        <canvas id="time-series-chart"></canvas>
+                    </div>
+                </div>
+            </section>
+        </main>
+    </div>
+
+    <!-- Validation Modal -->
+    <div id="validation-modal" class="modal-overlay hidden">
+        <div class="modal-content glass-card">
+            <header class="modal-header">
+                <h2><i data-lucide="check-square"></i> Prototype Validation & Methodology</h2>
+                <button id="btn-close-modal" class="close-btn"><i data-lucide="x"></i></button>
+            </header>
+            <div class="modal-body">
+                <section class="modal-section">
+                    <h3><i data-lucide="info"></i> Framework Evaluation (Hielscher et al., 2023)</h3>
+                    <p>This prototype implements and evaluates the core data-processing pipeline of the paper <em>"A neural network based digital twin model for the structural health monitoring of reinforced concrete bridges"</em>:</p>
+                    <ul>
+                        <li><strong>Baseline Thermal Strains:</strong> Temperature sensors are used to predict the baseline strains at all 64 sensor locations using an Artificial Neural Network (MLP) and linear baselines.</li>
+                        <li><strong>Load Strain Extraction:</strong> Live mechanical strains are isolated by subtracting the predicted baseline thermal strains from the total raw sensor measurements.</li>
+                        <li><strong>Structural Calculations:</strong> Curvature is calculated from top/bottom sensor pairs, fitted with a polynomial, and double-integrated to calculate vertical deflections.</li>
+                    </ul>
+                </section>
+                
+                <section class="modal-section">
+                    <h3><i data-lucide="alert-circle"></i> Simulation & Assumptions</h3>
+                    <p>Since the field dataset from the Sydney footbridge is proprietary, the inputs have been simulated using physically-informed parameters:</p>
+                    <ul>
+                        <li><strong>Bridge Geometry:</strong> 17.9m span length with a supporting pier column at 8.95m.</li>
+                        <li><strong>Sensor Layout:</strong> 32 longitudinal positions containing top and bottom strain arrays, and 4 temperature sensors.</li>
+                        <li><strong>Moving Load:</strong> A 1.1-tonne pallet jack moving across the bridge deck.</li>
+                        <li><strong>Material Properties & Boundary Conditions:</strong> Concrete Young's Modulus <em>E</em> = 38 GPa, moment of inertia <em>I</em> = 0.00475 m&sup4;. Deflections are double-integrated using continuous beam boundary conditions (zero deflection at $x = 0$ m, $x = 8.95$ m, and $x = 17.9$ m).</li>
+                    </ul>
+                </section>
+
+                <section class="modal-section">
+                    <h3><i data-lucide="bar-chart-2"></i> Sensor Configuration Sensitivity Study (t = 13 min / Load at 14m)</h3>
+                    <p>To evaluate the framework under different sensor densities, we tested three configurations. The comparative error metrics show how spatial density affects structural reconstruction under continuous support constraints:</p>
+                    <table class="modal-table">
+                        <thead>
+                            <tr>
+                                <th>Sensor Setup</th>
+                                <th>Poly Degree</th>
+                                <th>Peak Moment</th>
+                                <th>Moment MAE</th>
+                                <th>Peak Deflection</th>
+                                <th>Deflection MAE</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <td><strong>Full (16 sensors)</strong></td>
+                                <td>4</td>
+                                <td>6.72 kNm</td>
+                                <td>1.05 kNm</td>
+                                <td>-0.23 mm</td>
+                                <td>0.054 mm</td>
+                            </tr>
+                            <tr>
+                                <td><strong>Reduced (8 sensors)</strong></td>
+                                <td>4</td>
+                                <td>10.01 kNm</td>
+                                <td>1.15 kNm</td>
+                                <td>-0.23 mm</td>
+                                <td>0.050 mm</td>
+                            </tr>
+                            <tr>
+                                <td><strong>Sparse (4 sensors)</strong></td>
+                                <td>2</td>
+                                <td>15.26 kNm</td>
+                                <td>3.32 kNm</td>
+                                <td>-0.36 mm</td>
+                                <td>0.105 mm</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                    <p class="modal-caption"><i data-lucide="info"></i> Metrics are computed against the paper's reference DT bending moment (Peak: 7.56 kNm) and FE deflection (Peak: -0.22 mm). Piecewise curvature integration is applied to satisfy zero deflection at the midspan pier support. Note that the 4-sensor setup limits polynomial fitting to degree 2 (quadratic), which cannot capture the double curvature over the midspan column, leading to massive errors.</p>
+                </section>
+
+                <section class="modal-section" style="margin-top: 16px;">
+                    <h3><i data-lucide="image"></i> ML Model Evaluation Figures</h3>
+                    <p>These figures illustrate the ML baseline performance, residual error distribution, and normal Q-Q verification plots:</p>
+                    <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-top: 8px;">
+                        <div style="text-align: center;">
+                            <img src="assets/baseline_prediction.png" alt="ANN Baseline Tracking" style="width: 100%; border-radius: 4px; border: 1px solid var(--border-color);">
+                            <span style="font-size: 9px; color: var(--text-muted);">MLP vs. Raw (Baseline Tracking)</span>
+                        </div>
+                        <div style="text-align: center;">
+                            <img src="assets/error_density.png" alt="ANN Error Density" style="width: 100%; border-radius: 4px; border: 1px solid var(--border-color);">
+                            <span style="font-size: 9px; color: var(--text-muted);">Residual Error Density</span>
+                        </div>
+                        <div style="text-align: center;">
+                            <img src="assets/qq_plot.png" alt="Normal Q-Q Plot" style="width: 100%; border-radius: 4px; border: 1px solid var(--border-color);">
+                            <span style="font-size: 9px; color: var(--text-muted);">Residuals Normal Q-Q Plot</span>
+                        </div>
+                    </div>
+                </section>
+            </div>
+        </div>
+    </div>
+
+    <!-- Alerts Modal -->
+    <div id="alerts-modal" class="modal-overlay hidden">
+        <div class="modal-content glass-card">
+            <header class="modal-header">
+                <h2><i data-lucide="bell"></i> Full Structural Alerts History Log</h2>
+                <button id="btn-close-alerts-modal" class="close-btn"><i data-lucide="x"></i></button>
+            </header>
+            <div class="modal-body">
+                <section class="modal-section">
+                    <h3><i data-lucide="info"></i> Session Alerts History</h3>
+                    <p>This panel logs all limit violations detected during your active session. The system highlights sensor locations exceeding Moment limit (&gt; 5.0 kNm) or Deflection limit (&gt; 0.15 mm):</p>
+                    <div id="modal-alerts-container" class="alert-log-container" style="height: 300px; font-size: 10px;">
+                        <div class="alert-empty-state">No alerts recorded in this session yet.</div>
+                    </div>
+                </section>
+            </div>
+        </div>
+    </div>
+
+    <!-- Custom JS -->
+    <script src="app.js"></script>
+</body>
+</html>
